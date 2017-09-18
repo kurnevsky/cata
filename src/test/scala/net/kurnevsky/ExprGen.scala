@@ -3,6 +3,13 @@ package net.kurnevsky
 import org.scalacheck._
 
 object ExprGen {
+  implicit val shrink: Shrink[Expr] = Shrink {
+    case ConstExpr(value) ⇒ Shrink.shrink(value).filter(_ >= 0).map(ConstExpr)
+    case BinaryOpExpr(_, left, right) ⇒ left +: right +: (Shrink.shrink(left) ++ Shrink.shrink(right))
+    case UnaryOpExpr(_, value) ⇒ value +: Shrink.shrink(value)
+    case BracketsExpr(value) ⇒ value +: Shrink.shrink(value)
+  }
+
   val unaryOp: Gen[UnaryOp] =
     Gen.oneOf(UnaryOp.Minus, UnaryOp.Plus)
   val addOp: Gen[BinaryOp] =
