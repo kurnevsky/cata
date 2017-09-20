@@ -1,7 +1,7 @@
 package net.kurnevsky.dummy
 
 import atto.parser.character.char
-import atto.parser.combinator.{endOfInput, opt}
+import atto.parser.combinator.endOfInput
 import atto.parser.numeric.int
 import atto.syntax.parser._
 import atto.Parser
@@ -30,14 +30,15 @@ object Expr {
     lazy val bracketsExpr: Parser[Expr] =
       char('(') ~> addExpr -| BracketsExpr <~ char(')') | constExpr
     lazy val unaryOpExpr: Parser[Expr] =
-      opt(unaryOp) ~ bracketsExpr -| {
-        case (Some(op), value) ⇒ UnaryOpExpr(op, value)
-        case (None, value) ⇒ value
+      unaryOp ~ bracketsExpr -| {
+        case (op, value) ⇒ UnaryOpExpr(op, value)
       }
+    lazy val unaryOpMulExpr: Parser[Expr] =
+      (unaryOpExpr | bracketsExpr) ~ (mulOp ~ bracketsExpr).many -| toTree
     lazy val mulExpr: Parser[Expr] =
-      unaryOpExpr ~ (mulOp ~ bracketsExpr).many -| toTree
+      bracketsExpr ~ (mulOp ~ bracketsExpr).many -| toTree
     lazy val addExpr: Parser[Expr] =
-      mulExpr ~ (addOp ~ mulExpr).many -| toTree
+      unaryOpMulExpr ~ (addOp ~ mulExpr).many -| toTree
     lazy val expr: Parser[Expr] =
       addExpr <~ endOfInput
   }

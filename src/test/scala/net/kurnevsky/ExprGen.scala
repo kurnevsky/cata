@@ -18,46 +18,49 @@ object ExprGen {
     Gen.oneOf(BinaryOp.Mul, BinaryOp.Div)
   val constExpr: Gen[Expr] =
     Gen.choose(0, Int.MaxValue).map(ConstExpr)
-  def bracketsExpr(level: Int): Gen[Expr] =
-    if (level <= 0)
+  def bracketsExpr(depth: Int): Gen[Expr] =
+    if (depth <= 0)
       constExpr
     else
       Gen.oneOf(
-        addExpr(level - 1),
+        addExpr(depth - 1, true).map(BracketsExpr),
         constExpr
       )
-  def unaryOpExpr(level: Int): Gen[Expr] =
-    Gen.oneOf(
-      for {
-        op ← unaryOp
-        value ← bracketsExpr(level)
-      } yield UnaryOpExpr(op, value),
-      bracketsExpr(level)
-    )
-  def mulExpr(level: Int): Gen[Expr] =
-    if (level <= 0)
-      unaryOpExpr(level)
+  def unaryOpExpr(depth: Int, unary: Boolean): Gen[Expr] =
+    if (unary)
+      Gen.oneOf(
+        for {
+          op ← unaryOp
+          value ← bracketsExpr(depth)
+        } yield UnaryOpExpr(op, value),
+        bracketsExpr(depth)
+      )
+    else
+      bracketsExpr(depth)
+  def mulExpr(depth: Int, unary: Boolean): Gen[Expr] =
+    if (depth <= 0)
+      unaryOpExpr(depth, unary)
     else
       Gen.oneOf(
         for {
           op ← mulOp
-          left ← mulExpr(level - 1)
-          right ← unaryOpExpr(level)
+          left ← mulExpr(depth - 1, unary)
+          right ← unaryOpExpr(depth, false)
         } yield BinaryOpExpr(op, left, right),
-        unaryOpExpr(level)
+        unaryOpExpr(depth, unary)
       )
-  def addExpr(level: Int): Gen[Expr] =
-    if (level <= 0)
-      mulExpr(level)
+  def addExpr(depth: Int, unary: Boolean): Gen[Expr] =
+    if (depth <= 0)
+      mulExpr(depth, unary)
     else
       Gen.oneOf(
         for {
           op ← addOp
-          left ← addExpr(level - 1)
-          right ← mulExpr(level)
+          left ← addExpr(depth - 1, unary)
+          right ← mulExpr(depth, false)
         } yield BinaryOpExpr(op, left, right),
-        mulExpr(level)
+        mulExpr(depth, unary)
       )
   val expr: Gen[Expr] =
-    addExpr(4)
+    addExpr(8, true)
 }
