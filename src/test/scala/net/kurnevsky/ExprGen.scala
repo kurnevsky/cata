@@ -17,7 +17,7 @@ object ExprGen {
   val mulOp: Gen[BinaryOp] =
     Gen.oneOf(BinaryOp.Mul, BinaryOp.Div)
   val constExpr: Gen[Expr] =
-    Gen.choose(0, Int.MaxValue).map(ConstExpr)
+    Gen.choose(0, 100).map(ConstExpr)
   def bracketsExpr(depth: Int): Gen[Expr] =
     if (depth <= 0)
       constExpr
