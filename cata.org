@@ -1,0 +1,366 @@
+#+TITLE: Catamorfism, ScalaCheck
+#+AUTHOR: Evgeny Kurnevsky
+#+DATE: September 21, 2017
+#+OPTIONS: num:nil toc:nil reveal_width:1200 reveal_height:800
+
+* Expressions
+
+2+3
+
+-2*(3+4)
+
+* Expr type
+
+#+BEGIN_SRC scala
+sealed trait UnaryOp
+object UnaryOp {
+  case object Plus extends UnaryOp
+  case object Minus extends UnaryOp
+}
+
+sealed trait BinaryOp
+object BinaryOp {
+  case object Add extends BinaryOp
+  case object Sub extends BinaryOp
+  case object Mul extends BinaryOp
+  case object Div extends BinaryOp
+}
+#+END_SRC
+
+#+REVEAL: split
+
+#+BEGIN_SRC scala
+sealed trait Expr
+final case class ConstExpr(value: Int) extends Expr
+final case class BinaryOpExpr(op: BinaryOp, left: Expr, right: Expr) extends Expr
+final case class UnaryOpExpr(op: UnaryOp, value: Expr) extends Expr
+final case class BracketsExpr(value: Expr) extends Expr
+#+END_SRC
+
+* Parser
+
+#+BEGIN_SRC scala
+def toTree(arg: (Expr, List[(BinaryOp, Expr)])): Expr = arg match {
+  case (head, tail) ⇒
+    tail.foldLeft(head)((acc, e) ⇒ BinaryOpExpr(e._1, acc, e._2))
+}
+val addOp: Parser[BinaryOp] =
+  char('+') >| BinaryOp.Add | char('-') >| BinaryOp.Sub
+val mulOp: Parser[BinaryOp] =
+  char('*') >| BinaryOp.Mul | char('/') >| BinaryOp.Div
+val unaryOp: Parser[UnaryOp] =
+  char('+') >| UnaryOp.Plus | char('-') >| UnaryOp.Minus
+#+END_SRC
+
+#+REVEAL: split
+
+#+BEGIN_SRC scala
+val constExpr: Parser[Expr] =
+  int.filter(_ >= 0) -| ConstExpr
+lazy val bracketsExpr: Parser[Expr] =
+  char('(') ~> addExpr -| BracketsExpr <~ char(')') | constExpr
+lazy val unaryOpExpr: Parser[Expr] =
+  unaryOp ~ bracketsExpr -| {
+    case (op, value) ⇒ UnaryOpExpr(op, value)
+  }
+lazy val unaryOpMulExpr: Parser[Expr] =
+  (unaryOpExpr | bracketsExpr) ~ (mulOp ~ bracketsExpr).many -| toTree
+lazy val mulExpr: Parser[Expr] =
+  bracketsExpr ~ (mulOp ~ bracketsExpr).many -| toTree
+lazy val addExpr: Parser[Expr] =
+  unaryOpMulExpr ~ (addOp ~ mulExpr).many -| toTree
+lazy val expr: Parser[Expr] =
+  addExpr <~ endOfInput
+#+END_SRC
+
+* Evaluate
+
+#+BEGIN_SRC scala
+def eval(expr: Expr): Int = expr match {
+  case ConstExpr(value) ⇒ value
+  case BinaryOpExpr(BinaryOp.Add, left, right) ⇒ eval(left) + eval(right)
+  case BinaryOpExpr(BinaryOp.Sub, left, right) ⇒ eval(left) - eval(right)
+  case BinaryOpExpr(BinaryOp.Mul, left, right) ⇒ eval(left) * eval(right)
+  case BinaryOpExpr(BinaryOp.Div, left, right) ⇒ eval(left) / eval(right)
+  case UnaryOpExpr(UnaryOp.Minus, value) ⇒ -eval(value)
+  case UnaryOpExpr(UnaryOp.Plus, value) ⇒ eval(value)
+  case BracketsExpr(value) ⇒ eval(value)
+}
+#+END_SRC
+
+* Print
+
+#+BEGIN_SRC scala
+def print(expr: Expr): String = expr match {
+  case ConstExpr(value) ⇒ value.toString
+  case BinaryOpExpr(BinaryOp.Add, left, right) ⇒ s"${print(left)}+${print(right)}"
+  case BinaryOpExpr(BinaryOp.Sub, left, right) ⇒ s"${print(left)}-${print(right)}"
+  case BinaryOpExpr(BinaryOp.Mul, left, right) ⇒ s"${print(left)}*${print(right)}"
+  case BinaryOpExpr(BinaryOp.Div, left, right) ⇒ s"${print(left)}/${print(right)}"
+  case UnaryOpExpr(UnaryOp.Minus, value) ⇒ s"-${print(value)}"
+  case UnaryOpExpr(UnaryOp.Plus, value) ⇒ s"+${print(value)}"
+  case BracketsExpr(value) ⇒ s"(${print(value)})"
+}
+#+END_SRC
+
+* Fold
+
+:     A          A
+:    / \        / \
+:   A   A  ->  B   A
+:  / \
+: B   B
+
+* ExprF
+
+#+BEGIN_SRC scala
+sealed trait ExprF[+T]
+final case class ConstExprF(value: Int) extends ExprF[Nothing]
+final case class BinaryOpExprF[+T](op: BinaryOp, left: T, right: T) extends ExprF[T]
+final case class UnaryOpExprF[+T](op: UnaryOp, value: T) extends ExprF[T]
+final case class BracketsExprF[+T](value: T) extends ExprF[T]
+#+END_SRC
+
+* Recursion
+
+EprF[?]
+
+EprF[EprF[EprF[EprF[...]]]]
+
+* Fix
+
+#+BEGIN_SRC scala
+final case class Fix[F[_]](value: F[Fix[F]]) extends AnyVal {
+  def cata[B](f: F[B] => B)(implicit F: Functor[F]): B =
+    f(value.map(_.cata(f)))
+}
+#+END_SRC
+
+* Redefine Expr
+
+#+BEGIN_SRC scala
+type Expr = Fix[ExprF]
+#+END_SRC
+
+#+REVEAL: split
+
+#+BEGIN_SRC scala
+object ConstExpr extends (Int ⇒ Expr) {
+  override def apply(value: Int): Expr =
+    Fix[ExprF](ConstExprF(value))
+  def unapply(expr: Expr) = expr.value match {
+    case constExprF: ConstExprF => ConstExprF.unapply(constExprF)
+    case _ => None
+  }
+}
+
+object BinaryOpExpr extends ((BinaryOp, Expr, Expr) ⇒ Expr) {
+  override def apply(op: BinaryOp, left: Expr, right: Expr): Expr =
+    Fix[ExprF](BinaryOpExprF(op, left, right))
+  def unapply(expr: Expr) = expr.value match {
+    case binaryOpExprF: BinaryOpExprF[Expr] ⇒ BinaryOpExprF.unapply(binaryOpExprF)
+    case _ => None
+  }
+}
+#+END_SRC
+
+#+REVEAL: split
+
+#+BEGIN_SRC scala
+object UnaryOpExpr extends ((UnaryOp, Expr) ⇒ Expr) {
+  override def apply(op: UnaryOp, value: Expr) =
+    Fix[ExprF](UnaryOpExprF(op, value))
+  def unapply(expr: Expr) = expr.value match {
+    case unaryOpExprF: UnaryOpExprF[Expr] ⇒ UnaryOpExprF.unapply(unaryOpExprF)
+    case _ => None
+  }
+}
+
+object BracketsExpr extends (Expr ⇒ Expr) {
+  override def apply(value: Expr): Expr =
+    Fix[ExprF](BracketsExprF(value))
+  def unapply(expr: Expr) = expr.value match {
+    case bracketsExprF: BracketsExprF[Expr] ⇒ BracketsExprF.unapply(bracketsExprF)
+    case _ => None
+  }
+}
+#+END_SRC
+
+* Redefine parser
+
+#+BEGIN_SRC scala
+val constExpr: Parser[Expr] =
+  int.filter(_ >= 0) -| ConstExpr
+lazy val bracketsExpr: Parser[Expr] =
+  char('(') ~> addExpr -| BracketsExpr <~ char(')') | constExpr
+lazy val unaryOpExpr: Parser[Expr] =
+  unaryOp ~ bracketsExpr -| {
+    case (op, value) ⇒ UnaryOpExpr(op, value)
+  }
+lazy val unaryOpMulExpr: Parser[Expr] =
+  (unaryOpExpr | bracketsExpr) ~ (mulOp ~ bracketsExpr).many -| toTree
+lazy val mulExpr: Parser[Expr] =
+  bracketsExpr ~ (mulOp ~ bracketsExpr).many -| toTree
+lazy val addExpr: Parser[Expr] =
+  unaryOpMulExpr ~ (addOp ~ mulExpr).many -| toTree
+lazy val expr: Parser[Expr] =
+  addExpr <~ endOfInput
+#+END_SRC
+
+* Redefine evaluate
+
+#+BEGIN_SRC scala
+def eval(expr: Expr): Int = expr.cata[Int] {
+  case ConstExprF(value) ⇒ value
+  case BinaryOpExprF(BinaryOp.Add, left, right) ⇒ left + right
+  case BinaryOpExprF(BinaryOp.Sub, left, right) ⇒ left - right
+  case BinaryOpExprF(BinaryOp.Mul, left, right) ⇒ left * right
+  case BinaryOpExprF(BinaryOp.Div, left, right) ⇒ left / right
+  case UnaryOpExprF(UnaryOp.Minus, value) ⇒ -value
+  case UnaryOpExprF(UnaryOp.Plus, value) ⇒ value
+  case BracketsExprF(value) ⇒ value
+}
+#+END_SRC
+
+* Redefine print
+
+#+BEGIN_SRC scala
+def print(expr: Expr): String = expr.cata[String] {
+  case ConstExprF(value) ⇒ value.toString
+  case BinaryOpExprF(BinaryOp.Add, left, right) ⇒ s"$left+$right"
+  case BinaryOpExprF(BinaryOp.Sub, left, right) ⇒ s"$left-$right"
+  case BinaryOpExprF(BinaryOp.Mul, left, right) ⇒ s"$left*$right"
+  case BinaryOpExprF(BinaryOp.Div, left, right) ⇒ s"$left/$right"
+  case UnaryOpExprF(UnaryOp.Minus, value) ⇒ s"-$value"
+  case UnaryOpExprF(UnaryOp.Plus, value) ⇒ s"+$value"
+  case BracketsExprF(value) ⇒ s"($value)"
+}
+#+END_SRC
+
+* Generator
+
+#+BEGIN_SRC scala
+val unaryOp: Gen[UnaryOp] =
+  Gen.oneOf(UnaryOp.Minus, UnaryOp.Plus)
+val addOp: Gen[BinaryOp] =
+  Gen.oneOf(BinaryOp.Add, BinaryOp.Sub)
+val mulOp: Gen[BinaryOp] =
+  Gen.oneOf(BinaryOp.Mul, BinaryOp.Div)
+val constExpr: Gen[Expr] =
+  Gen.choose(0, 100).map(ConstExpr)
+#+END_SRC
+
+#+REVEAL: split
+
+#+BEGIN_SRC scala
+def bracketsExpr(depth: Int): Gen[Expr] =
+  if (depth <= 0)
+    constExpr
+  else
+    Gen.oneOf(
+      addExpr(depth - 1, true).map(BracketsExpr),
+      constExpr
+    )
+#+END_SRC
+
+#+REVEAL: split
+
+#+BEGIN_SRC scala
+def unaryOpExpr(depth: Int, unary: Boolean): Gen[Expr] =
+  if (unary)
+    Gen.oneOf(
+      for {
+        op ← unaryOp
+        value ← bracketsExpr(depth)
+      } yield UnaryOpExpr(op, value),
+      bracketsExpr(depth)
+    )
+  else
+    bracketsExpr(depth)
+#+END_SRC
+
+#+REVEAL: split
+
+#+BEGIN_SRC scala
+def mulExpr(depth: Int, unary: Boolean): Gen[Expr] =
+  if (depth <= 0)
+    unaryOpExpr(depth, unary)
+  else
+    Gen.oneOf(
+      for {
+        op ← mulOp
+        left ← mulExpr(depth - 1, unary)
+        right ← unaryOpExpr(depth, false)
+      } yield BinaryOpExpr(op, left, right),
+      unaryOpExpr(depth, unary)
+    )
+#+END_SRC
+
+#+REVEAL: split
+
+#+BEGIN_SRC scala
+def addExpr(depth: Int, unary: Boolean): Gen[Expr] =
+  if (depth <= 0)
+    mulExpr(depth, unary)
+  else
+    Gen.oneOf(
+      for {
+        op ← addOp
+        left ← addExpr(depth - 1, unary)
+        right ← mulExpr(depth, false)
+      } yield BinaryOpExpr(op, left, right),
+      mulExpr(depth, unary)
+    )
+#+END_SRC
+
+#+REVEAL: split
+
+#+BEGIN_SRC scala
+val expr: Gen[Expr] =
+  addExpr(8, true)
+#+END_SRC
+
+* Generate examples
+
+#+BEGIN_SRC scala
+ExprGen.expr.sample.map(ExprF.print)
+#+END_SRC
+
+#+RESULTS:
+: Some(-28/(-((+89-(93))+(39/(+83)/1)+89-(-21+25*(70-67/46/53))))/(47))
+
+* Shrink
+
+#+BEGIN_SRC scala
+implicit val shrink: Shrink[Expr] = Shrink {
+  case ConstExpr(value) ⇒ Shrink.shrink(value).filter(_ >= 0).map(ConstExpr)
+  case BinaryOpExpr(_, left, right) ⇒ left +: right +: (Shrink.shrink(left) ++ Shrink.shrink(right))
+  case UnaryOpExpr(_, value) ⇒ value +: Shrink.shrink(value)
+  case BracketsExpr(value) ⇒ value +: Shrink.shrink(value)
+}
+#+END_SRC
+
+* Shrink example
+
+#+BEGIN_SRC scala
+import atto.syntax.parser._
+val expr = ExprF.Parser.expr.parseOnly("-(1+2)*3+6").option
+expr.map(ExprGen.shrink.shrink).map(_.map(ExprF.print).toList)
+#+END_SRC
+
+#+RESULTS:
+: Some(List(-(1+2)*3, 6, -(1+2), 3, (1+2), 1+2, 1, 2, 0, 1, 0, 1, 0, 3, 1, 0))
+
+* Test
+
+#+BEGIN_SRC scala
+test("print should be inverse of parse") {
+  import ExprGen.shrink
+  check {
+    forAll(ExprGen.expr) { expr =>
+      val exprStr = ExprF.print(expr)
+      ExprF.Parser.expr.parseOnly(exprStr).option.get == expr
+    }
+  }
+}
+#+END_SRC
