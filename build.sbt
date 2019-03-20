@@ -2,7 +2,7 @@ name := "cata"
 
 version := "1.0.0-SNAPSHOT"
 
-scalaVersion := "2.12.3"
+scalaVersion := "2.12.8"
 
 organization := "net.kurnevsky"
 
@@ -22,10 +22,10 @@ resolvers ++= Seq(
 )
 
 libraryDependencies ++= Seq(
-  "org.typelevel" %% "cats-core" % "1.0.0-MF",
-  "org.tpolecat" %% "atto-core"  % "0.6.1-M1",
-  "org.scalatest" %% "scalatest" % "3.0.1" % "test",
-  "org.scalacheck" %% "scalacheck" % "1.13.4" % "test"
+  "org.typelevel" %% "cats-core" % "1.5.0",
+  "org.tpolecat" %% "atto-core"  % "0.6.5",
+  "org.scalatest" %% "scalatest" % "3.0.6" % "test",
+  "org.scalacheck" %% "scalacheck" % "1.14.0" % "test"
 )
 
 mainClass in (Compile, run) := Some("net.kurnevsky.Main")

@@ -2,7 +2,7 @@ package net.kurnevsky
 
 import atto.syntax.parser._
 import org.scalatest.FunSuite
-import org.scalatest.prop.Checkers
+import org.scalatestplus.scalacheck.Checkers
 import org.scalacheck.Prop._
 
 class ExprCheck extends FunSuite with Checkers {
